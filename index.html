@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta
+  name="viewport"
+  content="width=device-width, initial-scale=1.0"
+>
+
+<title>Asistencia QR</title>
+
+<script src="https://unpkg.com/html5-qrcode"></script>
+
+<style>
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+
+  margin: 0;
+
+  font-family:
+    Arial,
+    Helvetica,
+    sans-serif;
+
+  background:
+    #f2f4f7;
+
+  color: #222;
+}
+
+
+header {
+
+  background:
+    #1f4e78;
+
+  color: white;
+
+  padding: 18px;
+
+  text-align: center;
+}
+
+
+header h1 {
+
+  margin: 0;
+
+  font-size: 24px;
+}
+
+
+.contenedor {
+
+  max-width: 600px;
+
+  margin: auto;
+
+  padding: 15px;
+}
+
+
+.card {
+
+  background: white;
+
+  border-radius: 16px;
+
+  padding: 18px;
+
+  margin-top: 15px;
+
+  box-shadow:
+    0 3px 12px
+    rgba(0,0,0,0.10);
+}
+
+
+#reader {
+
+  width: 100%;
+
+  border-radius: 12px;
+
+  overflow: hidden;
+}
+
+
+.estado {
+
+  text-align: center;
+
+  font-size: 18px;
+
+  font-weight: bold;
+
+  margin-top: 15px;
+
+  min-height: 28px;
+}
+
+
+.resultado {
+
+  display: none;
+
+  text-align: center;
+
+  padding: 20px;
+
+  border-radius: 15px;
+
+  margin-top: 15px;
+}
+
+
+.entrada {
+
+  background: #d9f7df;
+
+  color: #146c2e;
+}
+
+
+.salida {
+
+  background: #dcecff;
+
+  color: #174f91;
+}
+
+
+.error {
+
+  background: #ffe0e0;
+
+  color: #a00000;
+}
+
+
+.nombre {
+
+  font-size: 25px;
+
+  font-weight: bold;
+
+  margin-bottom: 8px;
+}
+
+
+.hora {
+
+  font-size: 32px;
+
+  font-weight: bold;
+
+  margin: 10px 0;
+}
+
+
+.grupo {
+
+  font-size: 18px;
+}
+
+
+button {
+
+  width: 100%;
+
+  border: 0;
+
+  border-radius: 10px;
+
+  padding: 15px;
+
+  margin-top: 15px;
+
+  font-size: 18px;
+
+  font-weight: bold;
+
+  background: #1f4e78;
+
+  color: white;
+}
+
+
+button:active {
+
+  transform: scale(0.98);
+}
+
+</style>
+
+</head>
+
+
+<body>
+
+
+<header>
+
+<h1>📋 Asistencia QR</h1>
+
+<div>
+Escanea el código del alumno
+</div>
+
+</header>
+
+
+<div class="contenedor">
+
+
+<div class="card">
+
+<div id="reader"></div>
+
+<div
+  id="estado"
+  class="estado"
+>
+Preparando cámara...
+</div>
+
+</div>
+
+
+<div
+  id="resultado"
+  class="resultado"
+>
+
+<div
+  id="nombre"
+  class="nombre"
+></div>
+
+<div
+  id="grupo"
+  class="grupo"
+></div>
+
+<div
+  id="tipo"
+></div>
+
+<div
+  id="hora"
+  class="hora"
+></div>
+
+<div
+  id="mensaje"
+></div>
+
+</div>
+
+
+<button
+  onclick="reiniciarEscaner()"
+>
+🔄 Reiniciar escáner
+</button>
+
+
+</div>
+
+
+<script>
+
+
+/******************************************************
+ * CONFIGURACIÓN
+ ******************************************************/
+
+const API_URL =
+"https://script.google.com/macros/s/AKfycbx-4mrlsS2DVgI9ZOJSStLLPuF3dDGDq-RX7dXIl_5GAevZyhmEGBbR3MICsSBMukgO/exec";
+
+
+/******************************************************
+ * VARIABLES
+ ******************************************************/
+
+let scanner = null;
+
+let procesando = false;
+
+let ultimoCodigo = "";
+
+let ultimoTiempo = 0;
+
+
+/******************************************************
+ * INICIAR ESCÁNER
+ ******************************************************/
+
+function iniciarScanner() {
+
+  scanner =
+    new Html5Qrcode("reader");
+
+
+  const config = {
+
+    fps: 10,
+
+    qrbox: function(width, height) {
+
+      const size =
+        Math.min(width, height) * 0.70;
+
+      return {
+        width: size,
+        height: size
+      };
+    },
+
+    aspectRatio: 1.0
+
+  };
+
+
+  scanner.start(
+
+    {
+      facingMode: "environment"
+    },
+
+    config,
+
+    codigoDetectado,
+
+    errorScanner
+
+  )
+
+  .then(() => {
+
+    cambiarEstado(
+      "📷 Cámara activa. Escanea un QR."
+    );
+
+  })
+
+  .catch(error => {
+
+    cambiarEstado(
+      "❌ No se pudo abrir la cámara."
+    );
+
+    mostrarError(
+      "Debes permitir el acceso a la cámara."
+    );
+
+    console.error(error);
+  });
+
+}
+
+
+/******************************************************
+ * QR DETECTADO
+ ******************************************************/
+
+function codigoDetectado(texto) {
+
+  const ahora =
+    Date.now();
+
+
+  /*
+   * Evita leer el mismo QR muchas veces
+   * en una fracción de segundo.
+   */
+
+  if (
+    procesando ||
+    (
+      texto === ultimoCodigo &&
+      ahora - ultimoTiempo < 5000
+    )
+  ) {
+
+    return;
+  }
+
+
+  ultimoCodigo = texto;
+
+  ultimoTiempo = ahora;
+
+  procesando = true;
+
+
+  cambiarEstado(
+    "⏳ Registrando..."
+  );
+
+
+  /*
+   * Comprobar formato:
+   *
+   * ASISTENCIA|ALU-XXXXXXXX
+   */
+
+  if (!texto.startsWith("ASISTENCIA|")) {
+
+    mostrarError(
+      "Este código QR no pertenece al sistema."
+    );
+
+    procesando = false;
+
+    cambiarEstado(
+      "📷 Escanea un QR válido."
+    );
+
+    return;
+  }
+
+
+  const id =
+    texto.split("|")[1];
+
+
+  registrar(id);
+
+}
+
+
+/******************************************************
+ * REGISTRAR EN GOOGLE SHEETS
+ ******************************************************/
+
+function registrar(id) {
+
+
+  const callbackName =
+    "respuesta_" +
+    Date.now();
+
+
+  window[callbackName] =
+    function(respuesta) {
+
+      try {
+
+        mostrarResultado(respuesta);
+
+      } catch(error) {
+
+        mostrarError(
+          "Error procesando la respuesta."
+        );
+
+      }
+
+
+      setTimeout(() => {
+
+        delete window[callbackName];
+
+        procesando = false;
+
+        cambiarEstado(
+          "📷 Escanea el siguiente QR."
+        );
+
+      }, 3000);
+
+    };
+
+
+  const script =
+    document.createElement("script");
+
+
+  script.src =
+    API_URL +
+    "?action=registrar" +
+    "&id=" +
+    encodeURIComponent(id) +
+    "&callback=" +
+    callbackName;
+
+
+  script.onerror =
+    function() {
+
+      mostrarError(
+        "No fue posible comunicarse con el servidor."
+      );
+
+      procesando = false;
+
+      cambiarEstado(
+        "📷 Escanea nuevamente."
+      );
+
+      delete window[callbackName];
+    };
+
+
+  document.body.appendChild(script);
+
+}
+
+
+/******************************************************
+ * MOSTRAR RESULTADO
+ ******************************************************/
+
+function mostrarResultado(respuesta) {
+
+
+  const caja =
+    document.getElementById("resultado");
+
+  const nombre =
+    document.getElementById("nombre");
+
+  const grupo =
+    document.getElementById("grupo");
+
+  const tipo =
+    document.getElementById("tipo");
+
+  const hora =
+    document.getElementById("hora");
+
+  const mensaje =
+    document.getElementById("mensaje");
+
+
+  caja.style.display =
+    "block";
+
+
+  caja.className =
+    "resultado";
+
+
+  if (!respuesta.ok) {
+
+    caja.classList.add("error");
+
+    nombre.textContent =
+      respuesta.alumno || "";
+
+    grupo.textContent =
+      "";
+
+    tipo.textContent =
+      "⚠️";
+
+    hora.textContent =
+      "";
+
+    mensaje.textContent =
+      respuesta.mensaje || "Error";
+
+    return;
+  }
+
+
+  nombre.textContent =
+    respuesta.alumno;
+
+
+  grupo.textContent =
+    "Grupo: " +
+    respuesta.grupo;
+
+
+  hora.textContent =
+    respuesta.hora;
+
+
+  if (respuesta.tipo === "entrada") {
+
+    caja.classList.add(
+      "entrada"
+    );
+
+    tipo.textContent =
+      "🟢 ENTRADA";
+
+    mensaje.textContent =
+      respuesta.mensaje +
+      " — " +
+      respuesta.estado;
+
+  }
+
+
+  else if (
+    respuesta.tipo === "salida"
+  ) {
+
+    caja.classList.add(
+      "salida"
+    );
+
+    tipo.textContent =
+      "🔵 SALIDA";
+
+    mensaje.textContent =
+      respuesta.mensaje;
+
+  }
+
+
+  else {
+
+    caja.classList.add(
+      "error"
+    );
+
+    tipo.textContent =
+      "⚠️";
+
+    mensaje.textContent =
+      respuesta.mensaje;
+  }
+
+}
+
+
+/******************************************************
+ * ERROR
+ ******************************************************/
+
+function mostrarError(mensaje) {
+
+  const caja =
+    document.getElementById("resultado");
+
+  caja.style.display =
+    "block";
+
+  caja.className =
+    "resultado error";
+
+
+  document.getElementById(
+    "nombre"
+  ).textContent = "";
+
+
+  document.getElementById(
+    "grupo"
+  ).textContent = "";
+
+
+  document.getElementById(
+    "tipo"
+  ).textContent = "❌";
+
+
+  document.getElementById(
+    "hora"
+  ).textContent = "";
+
+
+  document.getElementById(
+    "mensaje"
+  ).textContent = mensaje;
+
+}
+
+
+/******************************************************
+ * ESTADO
+ ******************************************************/
+
+function cambiarEstado(texto) {
+
+  document.getElementById(
+    "estado"
+  ).textContent = texto;
+
+}
+
+
+/******************************************************
+ * REINICIAR
+ ******************************************************/
+
+function reiniciarEscaner() {
+
+  procesando = false;
+
+  ultimoCodigo = "";
+
+  ultimoTiempo = 0;
+
+
+  document.getElementById(
+    "resultado"
+  ).style.display = "none";
+
+
+  cambiarEstado(
+    "📷 Escanea el siguiente QR."
+  );
+
+}
+
+
+/******************************************************
+ * INICIAR
+ ******************************************************/
+
+window.addEventListener(
+  "load",
+  iniciarScanner
+);
+
+</script>
+
+</body>
+
+</html>
